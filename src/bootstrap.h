@@ -4,13 +4,15 @@
 #define __BOOTSTRAP_H
 
 #define TASK_COMM_LEN	 16
+#define MAX_CMD_LEN      80
 #define MAX_FILENAME_LEN 127
 
 enum event_type {
         EVENT_EXEC,
         EVENT_EXIT,
         EVENT_OPEN,
-        EVENT_CONN
+        EVENT_CONN,
+        EVENT_CMD
 };
 
 struct event {
@@ -41,6 +43,10 @@ struct event {
 	                __u32 daddr;
 	                __u16 dport;
 	        } conn;
+	        
+	        struct {
+	                char cmd[MAX_CMD_LEN];
+	        } cmd;
 	};
 };
 

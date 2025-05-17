@@ -79,6 +79,18 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		       saddr_str,
 		       daddr_str,
 		       e->conn.dport);
+	} else if (e->type == EVENT_CMD) {
+		printf("{\"type\": \"cmd\", "
+		       "\"timestamp\": %llu, "
+		       "\"pid\": %d, "
+		       "\"ppid\": %d, "
+		       "\"comm\": \"%s\", "
+		       "\"cmd\": \"%s\"}\n",
+		       e->timestamp,
+		       e->pid,
+		       e->ppid,
+		       e->comm,
+		       e->cmd.cmd);
 	}
 	return 0;
 }

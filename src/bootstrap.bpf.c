@@ -201,3 +201,30 @@ int handle_connect_ret(struct pt_regs *ctx)
         bpf_map_delete_elem(&sock_store, &pid);
         return 0;
 }
+
+SEC("uretprobe/bash:readline")
+int handle_bash_readline(struct pt_regs *ctx)
+{
+        const char *line = (const char *)PT_REGS_RC(ctx);
+        struct task_struct *task;
+        struct event *e;
+        pid_t pid;
+
+        e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
+        if (!e)
+            return 0;
+
+        pid = bpf_get_current_pid_tgid() >> 32;
+        task = (struct task_struct *)bpf_get_current_task();
+
+        e->type = EVENT_CMD;
+        e->pid = pid;
+        e->ppid = BPF_CORE_READ(task, real_parent, tgid);
+        bpf_get_current_comm(&e->comm, sizeof(e->comm));
+        e->timestamp = bpf_ktime_get_ns();
+
+        bpf_probe_read_user_str(&e->cmd.cmd, sizeof(e->cmd.cmd), line);
+
+        bpf_ringbuf_submit(e, 0);
+        return 0;
+}
