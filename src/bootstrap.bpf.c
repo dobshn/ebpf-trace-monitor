@@ -20,8 +20,6 @@ struct {
 	__uint(max_entries, 256 * 1024);
 } rb SEC(".maps");
 
-const volatile unsigned long long min_duration_ns = 0;
-
 SEC("tp/sched/sched_process_exec")
 int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
 {
@@ -35,10 +33,6 @@ int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
 	pid = bpf_get_current_pid_tgid() >> 32;
 	ts = bpf_ktime_get_ns();
 	bpf_map_update_elem(&exec_start, &pid, &ts, BPF_ANY);
-
-	/* don't emit exec events when minimum duration is specified */
-	if (min_duration_ns)
-		return 0;
 
 	/* reserve sample from BPF ringbuf */
 	e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
@@ -82,13 +76,7 @@ int handle_exit(struct trace_event_raw_sched_process_template *ctx)
 	start_ts = bpf_map_lookup_elem(&exec_start, &pid);
 	if (start_ts)
 		duration_ns = bpf_ktime_get_ns() - *start_ts;
-	else if (min_duration_ns)
-		return 0;
 	bpf_map_delete_elem(&exec_start, &pid);
-
-	/* if process didn't live long enough, return early */
-	if (min_duration_ns && duration_ns < min_duration_ns)
-		return 0;
 
 	/* reserve sample from BPF ringbuf */
 	e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
