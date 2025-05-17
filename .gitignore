@@ -1,0 +1,18 @@
+# 빌드 결과물
+/build/
+/bootstrap
+
+# 생성된 BPF skeleton 헤더
+/src/*.skel.h
+
+# libbpf 내부 빌드 파일
+/libbpf/src/staticobjs/
+/libbpf/src/sharedobjs/
+/libbpf/src/libbpf.a
+/libbpf/src/libbpf.so*
+/libbpf/src/libbpf.pc
+
+# 기타 불필요한 파일
+*~
+*.swp
+.DS_Store
