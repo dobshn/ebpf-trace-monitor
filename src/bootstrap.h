@@ -8,7 +8,8 @@
 
 enum event_type {
         EVENT_EXEC,
-        EVENT_EXIT
+        EVENT_EXIT,
+        EVENT_OPEN
 };
 
 struct event {
@@ -29,6 +30,10 @@ struct event {
 	                unsigned exit_code;
 	                unsigned long long duration_ns;
 	        } exit;
+	        
+	        struct {
+	                char filename[MAX_FILENAME_LEN];
+	        } open;
 	};
 };
 

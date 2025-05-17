@@ -18,7 +18,7 @@ static void sig_handler(int sig)
 static int handle_event(void *ctx, void *data, size_t data_sz)
 {
 	const struct event *e = data;
-
+        /* TODO: 시간 출력 ISO 8601 포맷 */
 	if (e->type == EVENT_EXEC) {
 		printf("{\"type\": \"exec\", "
 		       "\"timestamp\": %llu, "
@@ -45,6 +45,18 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		       e->comm,
 		       e->exit.exit_code,
 		       e->exit.duration_ns / 1000000);
+	} else if (e->type == EVENT_OPEN) {
+		printf("{\"type\": \"open\", "
+		       "\"timestamp\": %llu, "
+		       "\"pid\": %d, "
+		       "\"ppid\": %d, "
+		       "\"comm\": \"%s\", "
+		       "\"filename\": \"%s\"}\n",
+		       e->timestamp,
+		       e->pid,
+		       e->ppid,
+		       e->comm,
+		       e->open.filename);
 	}
 	return 0;
 }

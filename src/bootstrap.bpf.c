@@ -105,3 +105,35 @@ int handle_exit(struct trace_event_raw_sched_process_template *ctx)
 	bpf_ringbuf_submit(e, 0);
 	return 0;
 }
+
+SEC("tp/syscalls/sys_enter_openat")
+int handle_open(struct trace_event_raw_sys_enter *ctx)
+{
+	struct event *e;
+	struct task_struct *task;
+	pid_t pid;
+	const char *fname;
+
+	/* reserve sample from BPF ringbuf */
+	e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
+	if (!e)
+		return 0;
+
+	task = (struct task_struct *)bpf_get_current_task();
+	pid = bpf_get_current_pid_tgid() >> 32;
+
+	/* 공통 필드 */
+	e->type = EVENT_OPEN;
+	e->pid = pid;
+	e->ppid = BPF_CORE_READ(task, real_parent, tgid);
+	bpf_get_current_comm(&e->comm, sizeof(e->comm));
+	e->timestamp = bpf_ktime_get_ns();
+
+	/* 특화 필드 */
+	fname = (const char *)ctx->args[1];
+	bpf_probe_read_user_str(&e->open.filename, sizeof(e->open.filename), fname);
+
+	/* submit */
+	bpf_ringbuf_submit(e, 0);
+	return 0;
+}
