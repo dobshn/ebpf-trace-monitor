@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
 /* Copyright (c) 2020 Facebook */
+/* Modified by dobshn, 2025 */
 #include <signal.h>
 #include <stdio.h>
 #include <time.h>
