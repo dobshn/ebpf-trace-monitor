@@ -42,13 +42,16 @@ int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
 	/* fill out the sample with data */
 	task = (struct task_struct *)bpf_get_current_task();
 
-	e->exit_event = false;
+        /* 공통 필드 */
+        e->type = EVENT_EXEC;
 	e->pid = pid;
 	e->ppid = BPF_CORE_READ(task, real_parent, tgid);
 	bpf_get_current_comm(&e->comm, sizeof(e->comm));
-
+	e->timestamp = ts;
+	
+        /* 특화 필드 */
 	fname_off = ctx->__data_loc_filename & 0xFFFF;
-	bpf_probe_read_str(&e->filename, sizeof(e->filename), (void *)ctx + fname_off);
+	bpf_probe_read_str(&e->exec.filename, sizeof(e->exec.filename), (void *)ctx + fname_off);
 
 	/* successfully submit it to user-space for post-processing */
 	bpf_ringbuf_submit(e, 0);
@@ -67,6 +70,7 @@ int handle_exit(struct trace_event_raw_sched_process_template *ctx)
 	id = bpf_get_current_pid_tgid();
 	pid = id >> 32;
 	tid = (u32)id;
+	ts = bpf_ktime_get_ns();
 
 	/* ignore thread exits */
 	if (pid != tid)
@@ -75,7 +79,7 @@ int handle_exit(struct trace_event_raw_sched_process_template *ctx)
 	/* if we recorded start of the process, calculate lifetime duration */
 	start_ts = bpf_map_lookup_elem(&exec_start, &pid);
 	if (start_ts)
-		duration_ns = bpf_ktime_get_ns() - *start_ts;
+		duration_ns = ts - *start_ts;
 	bpf_map_delete_elem(&exec_start, &pid);
 
 	/* reserve sample from BPF ringbuf */
@@ -86,12 +90,16 @@ int handle_exit(struct trace_event_raw_sched_process_template *ctx)
 	/* fill out the sample with data */
 	task = (struct task_struct *)bpf_get_current_task();
 
-	e->exit_event = true;
-	e->duration_ns = duration_ns;
+        /* 공통 필드 */
+        e->type = EVENT_EXIT;
 	e->pid = pid;
 	e->ppid = BPF_CORE_READ(task, real_parent, tgid);
-	e->exit_code = (BPF_CORE_READ(task, exit_code) >> 8) & 0xff;
 	bpf_get_current_comm(&e->comm, sizeof(e->comm));
+	e->timestamp = ts;
+	
+	/* 특화 필드 */
+	e->exit.exit_code = (BPF_CORE_READ(task, exit_code) >> 8) & 0xff;
+	e->exit.duration_ns = duration_ns;
 
 	/* send data to user-space for post-processing */
 	bpf_ringbuf_submit(e, 0);

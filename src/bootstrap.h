@@ -6,14 +6,30 @@
 #define TASK_COMM_LEN	 16
 #define MAX_FILENAME_LEN 127
 
+enum event_type {
+        EVENT_EXEC,
+        EVENT_EXIT
+};
+
 struct event {
+        /* 공통 필드 */
+        enum event_type type;
 	int pid;
 	int ppid;
-	unsigned exit_code;
-	unsigned long long duration_ns;
 	char comm[TASK_COMM_LEN];
-	char filename[MAX_FILENAME_LEN];
-	bool exit_event;
+	unsigned long long timestamp;
+	
+	/* 이벤트 별 특화 필드 */
+	union {
+	        struct {
+	                char filename[MAX_FILENAME_LEN];
+	        } exec;
+	        
+	        struct {
+	                unsigned exit_code;
+	                unsigned long long duration_ns;
+	        } exit;
+	};
 };
 
 #endif /* __BOOTSTRAP_H */

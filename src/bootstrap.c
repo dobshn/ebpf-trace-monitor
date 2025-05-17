@@ -18,25 +18,34 @@ static void sig_handler(int sig)
 static int handle_event(void *ctx, void *data, size_t data_sz)
 {
 	const struct event *e = data;
-	struct tm *tm;
-	char ts[32];
-	time_t t;
 
-	time(&t);
-	tm = localtime(&t);
-	strftime(ts, sizeof(ts), "%H:%M:%S", tm);
-
-	if (e->exit_event) {
-		printf("%-8s %-5s %-16s %-7d %-7d [%u]", ts, "EXIT", e->comm, e->pid, e->ppid,
-		       e->exit_code);
-		if (e->duration_ns)
-			printf(" (%llums)", e->duration_ns / 1000000);
-		printf("\n");
-	} else {
-		printf("%-8s %-5s %-16s %-7d %-7d %s\n", ts, "EXEC", e->comm, e->pid, e->ppid,
-		       e->filename);
+	if (e->type == EVENT_EXEC) {
+		printf("{\"type\": \"exec\", "
+		       "\"timestamp\": %llu, "
+		       "\"pid\": %d, "
+		       "\"ppid\": %d, "
+		       "\"comm\": \"%s\", "
+		       "\"filename\": \"%s\"}\n",
+		       e->timestamp,
+		       e->pid,
+		       e->ppid,
+		       e->comm,
+		       e->exec.filename);
+	} else if (e->type == EVENT_EXIT) {
+		printf("{\"type\": \"exit\", "
+		       "\"timestamp\": %llu, "
+		       "\"pid\": %d, "
+		       "\"ppid\": %d, "
+		       "\"comm\": \"%s\", "
+		       "\"exit_code\": %u, "
+		       "\"duration_ms\": %llu}\n",
+		       e->timestamp,
+		       e->pid,
+		       e->ppid,
+		       e->comm,
+		       e->exit.exit_code,
+		       e->exit.duration_ns / 1000000);
 	}
-
 	return 0;
 }
 
@@ -78,10 +87,11 @@ int main(int argc, char **argv)
 		fprintf(stderr, "Failed to create ring buffer\n");
 		goto cleanup;
 	}
+	
+	/* 모니터링 시작 */
+	printf("[ebpf-trace-monitor] Start monitoring (JSON output)...\n");
 
 	/* Process events */
-	printf("%-8s %-5s %-16s %-7s %-7s %s\n", "TIME", "EVENT", "COMM", "PID", "PPID",
-	       "FILENAME/EXIT CODE");
 	while (!exiting) {
 		err = ring_buffer__poll(rb, 100 /* timeout, ms */);
 		/* Ctrl-C will cause -EINTR */
