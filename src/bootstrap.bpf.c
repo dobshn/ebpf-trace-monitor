@@ -4,6 +4,7 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
+#include <bpf/bpf_endian.h>
 #include "bootstrap.h"
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
@@ -14,6 +15,13 @@ struct {
 	__type(key, pid_t);
 	__type(value, u64);
 } exec_start SEC(".maps");
+
+struct {
+        __uint(type, BPF_MAP_TYPE_HASH);
+        __uint(max_entries, 8192);
+        __type(key, pid_t);
+        __type(value, struct sock *);
+} sock_store SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
@@ -136,4 +144,60 @@ int handle_open(struct trace_event_raw_sys_enter *ctx)
 	/* submit */
 	bpf_ringbuf_submit(e, 0);
 	return 0;
+}
+
+SEC("kprobe/tcp_connect")
+int handle_connect_entry(struct pt_regs *ctx)
+{
+        struct sock *sk;
+        pid_t pid;
+        
+        sk = (struct sock *)PT_REGS_PARM1(ctx);
+        pid = bpf_get_current_pid_tgid() >> 32;
+        bpf_map_update_elem(&sock_store, &pid, &sk, BPF_ANY);
+        return 0;
+}
+
+SEC("kretprobe/tcp_connect")
+int handle_connect_ret(struct pt_regs *ctx)
+{
+        struct event *e;
+        struct task_struct *task;
+        struct sock **skp, *sk;
+        pid_t pid;
+        int ret;
+
+        ret = PT_REGS_RC(ctx);
+        pid = bpf_get_current_pid_tgid() >> 32;
+
+        if (ret != 0) {
+            bpf_map_delete_elem(&sock_store, &pid);
+            return 0;
+        }
+
+        skp = bpf_map_lookup_elem(&sock_store, &pid);
+        if (!skp)
+            return 0;
+
+        sk = *skp;
+
+        e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
+        if (!e)
+            return 0;
+
+        task = (struct task_struct *)bpf_get_current_task();
+
+        e->type = EVENT_CONN;
+        e->pid = pid;
+        e->ppid = BPF_CORE_READ(task, real_parent, tgid);
+        bpf_get_current_comm(&e->comm, sizeof(e->comm));
+        e->timestamp = bpf_ktime_get_ns();
+
+        e->conn.saddr = BPF_CORE_READ(sk, __sk_common.skc_rcv_saddr);
+        e->conn.daddr = BPF_CORE_READ(sk, __sk_common.skc_daddr);
+        e->conn.dport = __bpf_ntohs(BPF_CORE_READ(sk, __sk_common.skc_dport));
+
+        bpf_ringbuf_submit(e, 0);
+        bpf_map_delete_elem(&sock_store, &pid);
+        return 0;
 }

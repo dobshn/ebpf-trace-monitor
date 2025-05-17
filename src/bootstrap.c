@@ -5,6 +5,7 @@
 #include <time.h>
 #include <sys/resource.h>
 #include <bpf/libbpf.h>
+#include <arpa/inet.h>
 #include "bootstrap.h"
 #include "bootstrap.skel.h"
 
@@ -57,6 +58,27 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		       e->ppid,
 		       e->comm,
 		       e->open.filename);
+	} else if (e->type == EVENT_CONN) {
+	        char saddr_str[INET_ADDRSTRLEN], daddr_str[INET_ADDRSTRLEN];
+	        
+	        inet_ntop(AF_INET, &e->conn.saddr, saddr_str, sizeof(saddr_str));
+	        inet_ntop(AF_INET, &e->conn.daddr, daddr_str, sizeof(daddr_str));
+	        
+		printf("{\"type\": \"conn\", "
+		       "\"timestamp\": %llu, "
+		       "\"pid\": %d, "
+		       "\"ppid\": %d, "
+		       "\"comm\": \"%s\", "
+		       "\"saddr\": \"%s\", "
+		       "\"daddr\": \"%s\", "
+		       "\"dport\": %d}\n",
+		       e->timestamp,
+		       e->pid,
+		       e->ppid,
+		       e->comm,
+		       saddr_str,
+		       daddr_str,
+		       e->conn.dport);
 	}
 	return 0;
 }

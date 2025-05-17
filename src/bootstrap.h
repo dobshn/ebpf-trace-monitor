@@ -9,7 +9,8 @@
 enum event_type {
         EVENT_EXEC,
         EVENT_EXIT,
-        EVENT_OPEN
+        EVENT_OPEN,
+        EVENT_CONN
 };
 
 struct event {
@@ -34,6 +35,12 @@ struct event {
 	        struct {
 	                char filename[MAX_FILENAME_LEN];
 	        } open;
+	        
+	        struct {
+	                __u32 saddr;
+	                __u32 daddr;
+	                __u16 dport;
+	        } conn;
 	};
 };
 
