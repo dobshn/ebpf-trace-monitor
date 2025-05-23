@@ -10,6 +10,16 @@
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
+/*
+ * fork() 호출 시, 생성된 자식의 pid를 저장할 map이다.
+ */
+struct {
+        __uint(type, BPF_MAP_TYPE_HASH);
+        __uint(max_entries, 8192);
+        __type(key, pid_t);
+        __type(value, u8);
+} child_pid_store SEC(".maps");
+
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, 8192);
@@ -29,6 +39,23 @@ struct {
 	__uint(max_entries, 256 * 1024);
 } rb SEC(".maps");
 
+/*
+ * fork() 호출이 일어난 다음 exec()가 호출된 경우, 프로세스 생성으로 간주한다.
+ * fork() 호출 시 생성된 자식의 pid를 map에 등록한다.
+ * exec() 호출 시 해당 프로세스의 pid가 map에 등록되어 있는지 확인한다.
+ * 등록되어 있을 경우에만 프로세스 생성으로 간주한다.
+ * 이후 해당 프로세스의 pid를 map에서 제거한다.(연달아 exec 호출하는 경우 방지)
+ */
+SEC("tp/sched/sched_process_fork")
+int handle_fork(struct trace_event_raw_sched_process_fork *ctx)
+{
+        pid_t child_pid = ctx->child_pid;
+        u8 dummy = 1;
+
+        bpf_map_update_elem(&child_pid_store, &child_pid, &dummy, BPF_ANY);
+        return 0;
+}
+
 SEC("tp/sched/sched_process_exec")
 int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
 {
@@ -37,9 +64,19 @@ int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
 	struct event *e;
 	pid_t pid;
 	u64 ts;
+	u8 *found;
 
-	/* remember time exec() was executed for this PID */
 	pid = bpf_get_current_pid_tgid() >> 32;
+	
+	/* fork를 통해 생성된 프로세스인지 확인 */
+	found = bpf_map_lookup_elem(&child_pid_store, &pid);
+	if (!found)
+		return 0; // fork 없이 exec만 호출된 경우 무시
+
+	/* exec를 통해 프로세스 생성 확정 → map에서 제거 */
+	bpf_map_delete_elem(&child_pid_store, &pid);
+	
+	/* remember time exec() was executed for this PID */
 	ts = bpf_ktime_get_ns();
 	bpf_map_update_elem(&exec_start, &pid, &ts, BPF_ANY);
 
