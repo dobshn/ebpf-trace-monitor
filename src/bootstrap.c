@@ -18,34 +18,7 @@ static void sig_handler(int sig)
 static int handle_event(void *ctx, void *data, size_t data_sz)
 {
 	const struct event *e = data;
-
-	if (e->type == EVENT_EXEC) {
-		printf("{\"type\": \"exec\", "
-		       "\"timestamp\": %llu, "
-		       "\"pid\": %d, "
-		       "\"ppid\": %d, "
-		       "\"comm\": \"%s\", "
-		       "\"filename\": \"%s\"}\n",
-		       e->timestamp,
-		       e->pid,
-		       e->ppid,
-		       e->comm,
-		       e->exec.filename);
-	} else if (e->type == EVENT_EXIT) {
-		printf("{\"type\": \"exit\", "
-		       "\"timestamp\": %llu, "
-		       "\"pid\": %d, "
-		       "\"ppid\": %d, "
-		       "\"comm\": \"%s\", "
-		       "\"exit_code\": %u, "
-		       "\"duration_ms\": %llu}\n",
-		       e->timestamp,
-		       e->pid,
-		       e->ppid,
-		       e->comm,
-		       e->exit.exit_code,
-		       e->exit.duration_ns / 1000000);
-	}
+        printf("%s\n", e->line);
 	return 0;
 }
 
@@ -87,9 +60,6 @@ int main(int argc, char **argv)
 		fprintf(stderr, "Failed to create ring buffer\n");
 		goto cleanup;
 	}
-	
-	/* 모니터링 시작 */
-	printf("[ebpf-trace-monitor] Start monitoring (JSON output)...\n");
 
 	/* Process events */
 	while (!exiting) {
