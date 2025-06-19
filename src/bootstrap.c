@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
 /* Copyright (c) 2020 Facebook */
 /* Modified by dobshn, 2025 */
+
 #include <signal.h>
 #include <stdio.h>
 #include <time.h>
@@ -12,33 +13,20 @@
 
 static volatile bool exiting = false;
 
-/*
- * 종료 시그널(SIGINT, SIGTERM) 수신 시 종료 플래그를 설정한다.
- * 메인 루프는 이 플래그를 감지하여 종료한다.
- */
 static void sig_handler(int sig)
 {
 	exiting = true;
 }
 
-/*
- * TODO: 시간 출력 ISO 8601 포맷으로 변경
- */
+// ctx 파라미터로 시간 보정 오프셋을 받습니다.
 static int handle_event(void *ctx, void *data, size_t data_sz)
 {
-        /*
-         * 각 이벤트 별로 특화된 정보를 포함하여 JSON 형식으로 출력한다.
-         * 모든 이벤트가 공통으로 출력하는 항목은 다음과 같다.
-         * - 이벤트 종류 (type)
-         * - 이벤트 발생 시간 (timestamp)
-         * - 프로세스 ID (pid)
-         * - 부모 프로세스 ID (ppid)
-         * - 프로세스 이름 (comm)
-         */
+    // 컨텍스트에서 오프셋 값을 가져옵니다.
+    long long *offset = (long long *)ctx;
 	const struct event *e = data;
-	/*
-	 * 프로세스 생성 이벤트 정보를 출력한다.
-	 */
+    // 부팅 기준 타임스탬프에 오프셋을 더해 Unix 시간을 계산합니다.
+    unsigned long long corrected_timestamp = e->timestamp + *offset;
+
 	if (e->type == EVENT_EXEC) {
 		printf("{\"type\": \"exec\", "
 		       "\"timestamp\": %llu, "
@@ -46,14 +34,11 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		       "\"ppid\": %d, "
 		       "\"comm\": \"%s\", "
 		       "\"filename\": \"%s\"}\n",
-		       e->timestamp,
+		       corrected_timestamp,
 		       e->pid,
 		       e->ppid,
 		       e->comm,
 		       e->exec.filename);
-	/*
-	 * 프로세스 종료 이벤트 정보를 출력한다.
-	 */
 	} else if (e->type == EVENT_EXIT) {
 		printf("{\"type\": \"exit\", "
 		       "\"timestamp\": %llu, "
@@ -62,15 +47,12 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		       "\"comm\": \"%s\", "
 		       "\"exit_code\": %u, "
 		       "\"duration_ms\": %llu}\n",
-		       e->timestamp,
+		       corrected_timestamp,
 		       e->pid,
 		       e->ppid,
 		       e->comm,
 		       e->exit.exit_code,
 		       e->exit.duration_ns / 1000000);
-	/*
-	 * 파일 오픈 이벤트 정보를 출력한다.
-	 */
 	} else if (e->type == EVENT_OPEN) {
 		printf("{\"type\": \"open\", "
 		       "\"timestamp\": %llu, "
@@ -78,20 +60,17 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		       "\"ppid\": %d, "
 		       "\"comm\": \"%s\", "
 		       "\"filename\": \"%s\"}\n",
-		       e->timestamp,
+		       corrected_timestamp,
 		       e->pid,
 		       e->ppid,
 		       e->comm,
 		       e->open.filename);
-	/*
-	 * TCP 연결 이벤트 정보를 출력한다.
-	 */
 	} else if (e->type == EVENT_CONN) {
-	        char saddr_str[INET_ADDRSTRLEN], daddr_str[INET_ADDRSTRLEN];
-	        
-	        inet_ntop(AF_INET, &e->conn.saddr, saddr_str, sizeof(saddr_str));
-	        inet_ntop(AF_INET, &e->conn.daddr, daddr_str, sizeof(daddr_str));
-	        
+	    char saddr_str[INET_ADDRSTRLEN], daddr_str[INET_ADDRSTRLEN];
+	    
+	    inet_ntop(AF_INET, &e->conn.saddr, saddr_str, sizeof(saddr_str));
+	    inet_ntop(AF_INET, &e->conn.daddr, daddr_str, sizeof(daddr_str));
+	    
 		printf("{\"type\": \"conn\", "
 		       "\"timestamp\": %llu, "
 		       "\"pid\": %d, "
@@ -100,16 +79,13 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		       "\"saddr\": \"%s\", "
 		       "\"daddr\": \"%s\", "
 		       "\"dport\": %d}\n",
-		       e->timestamp,
+		       corrected_timestamp,
 		       e->pid,
 		       e->ppid,
 		       e->comm,
 		       saddr_str,
 		       daddr_str,
 		       e->conn.dport);
-	/*
-	 * Shell 커맨드 입력 이벤트 정보를 출력한다.
-	 */
 	} else if (e->type == EVENT_CMD) {
 		printf("{\"type\": \"cmd\", "
 		       "\"timestamp\": %llu, "
@@ -117,7 +93,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		       "\"ppid\": %d, "
 		       "\"comm\": \"%s\", "
 		       "\"cmd\": \"%s\"}\n",
-		       e->timestamp,
+		       corrected_timestamp,
 		       e->pid,
 		       e->ppid,
 		       e->comm,
@@ -132,62 +108,44 @@ int main(void)
 	struct bootstrap_bpf *skel;
 	int err;
 
-	/*
-	 * Ctrl-C 시그널에 대한 시그널 핸들러를 지정한다.
-	 * 프로세스 정상 종료 신호에 대한 시그널 핸들러도 지정한다.
-	 */
+    // --- 타임스탬프 보정을 위한 오프셋 계산 ---
+    struct timespec realtime_ts, monotonic_ts;
+    clock_gettime(CLOCK_REALTIME, &realtime_ts);
+    clock_gettime(CLOCK_MONOTONIC, &monotonic_ts);
+    long long offset = (long long)realtime_ts.tv_sec * 1000000000 + realtime_ts.tv_nsec - 
+                       ((long long)monotonic_ts.tv_sec * 1000000000 + monotonic_ts.tv_nsec);
+
 	signal(SIGINT, sig_handler);
 	signal(SIGTERM, sig_handler);
-	/*
-	 * BPF 오브젝트 파일을 메모리에 로드한다.
-	 * 실패시, skel == NULL이 되어 오류 메시지를 출력한 뒤
-	 * 1을 반환하며 프로그램을 종료한다.
-	 */
+
 	skel = bootstrap_bpf__open();
 	if (!skel) {
 		fprintf(stderr, "Failed to open and load BPF skeleton\n");
 		return 1;
 	}
-	/*
-         * BPF 오브젝트 파일을 커널에 로드된다.
-         * 이때 verifier가 실행되어 검증이 진행된다.
-         * 실패할 경우 0이 아닌 값을 반환한다.
-         * skel 객체가 열려있기 때문에, cleanup으로 분기하여 종료한다.
-         */
+
 	err = bootstrap_bpf__load(skel);
 	if (err) {
 		fprintf(stderr, "Failed to load and verify BPF skeleton\n");
 		goto cleanup;
 	}
-	/*
-         * 각 BPF 섹션을 tracepoint, kprobe, uprobe 등으로 attach한다.
-         * 실패시 cleanup으로 분기하여 종료한다.
-         */
+
 	err = bootstrap_bpf__attach(skel);
 	if (err) {
 		fprintf(stderr, "Failed to attach BPF skeleton\n");
 		goto cleanup;
 	}
-	/*
-	 * Ring buffer를 초기화 한다.
-	 * 반환 값은 map의 파일 서술자가 된다.
-	 */
-	rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, NULL, NULL);
+	
+    // ring_buffer__new에 오프셋 값을 컨텍스트로 전달합니다.
+	rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, &offset, NULL);
 	if (!rb) {
 		err = -1;
 		fprintf(stderr, "Failed to create ring buffer\n");
 		goto cleanup;
 	}
-	/*
-	 * 모니터링을 시작한다.
-	 */
-	printf("[ebpf-trace-monitor] Start monitoring (JSON output)...\n");
+
+	fprintf(stderr, "[ebpf-trace-monitor] Start monitoring (JSON output)...\n");
 	while (!exiting) {
-	        /*
-	         * Ring buffer에서 이벤트를 기다린다.
-	         * 이벤트 발생 시 handle_event()를 호출한다.
-	         * 반환 값은 읽은 이벤트 수 또는 오류 코드가 된다.
-	         */
 		err = ring_buffer__poll(rb, 100 /* timeout, ms */);
 		if (err == -EINTR) {
 			err = 0;
@@ -200,15 +158,8 @@ int main(void)
 	}
 
 cleanup:
-	/*
-	 * 리소스를 정리하고 프로그램을 종료한다.
-	 */
 	ring_buffer__free(rb);
 	bootstrap_bpf__destroy(skel);
-        /*
-         * 실패 시, 에러코드를 양수로 변환한 뒤 반환한다.
-         * libbpf 함수들은 실패 시 음수 에러코드를 반환하기 때문이다.
-         * 성공 시, 0을 반환한다.
-         */
 	return err < 0 ? -err : 0;
 }
+
